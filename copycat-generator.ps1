@@ -7,46 +7,60 @@ $templateContent = Get-Content 'template.ps1'
 $tagPattern = "@@@(.*?)@@@"
 $matches = [regex]::Matches($templateContent, $tagPattern)
 
-$tags = @{}
+$tags = New-Object System.Collections.ArrayList
 foreach ($match in $matches) {
     $tagName = $match.Groups[1].Value
-    if (-not $tags.ContainsKey($tagName)) {
-        $tags[$tagName] = $null
-        Write-Host "Found tag: $tagName"
+    if (-not $tags.Contains($tagName)) {
+        $tags.Add($tagName) | Out-Null
     }
 }
 
-# Function to create input fields
-function CreateInputField($form, $tag, [ref]$position) {
-    Write-Host "Creating input field for: $tag"
 
-    $labelLocationY = $position.Value
-    $textBoxLocationY = $labelLocationY + 20
+# Function to create input fields
+function CreateInputField($form, $tag, [ref]$position, $isMultiline = $false) {
+    $textBoxHeight = 20
+    $positionIncrement = 45
+    $scrollBars = 'None'
+    if ($isMultiline) {
+        $textBoxHeight = 60
+        $positionIncrement = 85
+        $scrollBars = 'Vertical'
+    }
+
+    $labelYPosition = $position.Value
+    $textBoxYPosition = $labelYPosition + 20
 
     $label = New-Object System.Windows.Forms.Label
-    $label.Location = New-Object System.Drawing.Point(10, $labelLocationY)
+    $label.Location = New-Object System.Drawing.Point(10, $labelYPosition)
     $label.Size = New-Object System.Drawing.Size(280, 20)
     $label.Text = "Enter ${tag}:"
     $form.Controls.Add($label)
 
     $textBox = New-Object System.Windows.Forms.TextBox
-    $textBox.Location = New-Object System.Drawing.Point(10, $textBoxLocationY)
-    $textBox.Size = New-Object System.Drawing.Size(260, 20)
+    $textBox.Location = New-Object System.Drawing.Point(10, $textBoxYPosition)
+    $textBox.Size = New-Object System.Drawing.Size(260, $textBoxHeight)
+    $textBox.Multiline = $isMultiline
+    $textBox.ScrollBars = $scrollBars
     $textBox.Name = $tag
     $form.Controls.Add($textBox)
 
-    $position.Value += 50
+    $position.Value += $positionIncrement
 }
 
 # Create the main form
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'PowerShell Script Generator'
+$form.Text = 'CopyCat v1.2'
 $form.StartPosition = 'CenterScreen'
+$form.AutoSize = $true
+$form.AutoSizeMode = 'GrowAndShrink'
 
-# Create input fields dynamically
-$position = 20
-foreach ($tag in $tags.Keys) {
-    CreateInputField $form $tag ([ref]$position)
+# Initialize position
+$position = 10
+
+# Create input fields for each tag
+foreach ($tag in $tags) {
+    $isMultiline = $tag -eq "Description" # Adjust as necessary
+    CreateInputField $form $tag ([ref]$position) $isMultiline
 }
 
 # Generate Button
@@ -55,32 +69,36 @@ $generateButton.Location = New-Object System.Drawing.Point(10, $position)
 $generateButton.Size = New-Object System.Drawing.Size(260, 30)
 $generateButton.Text = 'Generate Script'
 $generateButton.Add_Click({
-    $generatedScript = $templateContent
-    foreach ($tag in $tags.Keys) {
-        $inputBox = $form.Controls.Find($tag, $true)
-        if ($inputBox -and $inputBox.Count -gt 0) {
-            $inputValue = $inputBox[0].Text
-            $generatedScript = $generatedScript -replace "@@@$tag@@@", $inputValue
+    $scriptNameInputBox = $form.Controls["ScriptName"]
+    $defaultFileName = if ($scriptNameInputBox.Text -ne '') { $scriptNameInputBox.Text } else { 'NewScript' }
+
+    $saveFileDialog = New-Object System.Windows.Forms.SaveFileDialog
+    $saveFileDialog.Filter = "PowerShell Script (*.ps1)|*.ps1"
+    $saveFileDialog.Title = "Save Generated Script"
+    $saveFileDialog.FileName = $defaultFileName
+
+    if ($saveFileDialog.ShowDialog() -eq 'OK') {
+        $generatedScript = $templateContent
+        foreach ($tag in $tags) {
+            $inputBox = $form.Controls[$tag]
+            if ($inputBox) {
+                $inputValue = $inputBox.Text
+                $generatedScript = $generatedScript -replace "@@@$tag@@@", $inputValue
+            }
         }
+        $generatedScript | Out-File -FilePath $saveFileDialog.FileName -Encoding UTF8
+        [System.Windows.Forms.MessageBox]::Show("Script saved to $($saveFileDialog.FileName)")
     }
-    # Save or do something with the generated script
-    # For example: $generatedScript | Out-File "GeneratedScript.ps1"
-    [System.Windows.Forms.MessageBox]::Show("Script Generated!")
 })
 $form.Controls.Add($generateButton)
 
-# Adjust form size based on content
-$form.AutoSize = $true
-$form.AutoSizeMode = 'GrowAndShrink'
-
 # Show the GUI
 $form.ShowDialog()
-
 # SIG # Begin signature block
 # MIIFggYJKoZIhvcNAQcCoIIFczCCBW8CAQExCzAJBgUrDgMCGgUAMGkGCisGAQQB
 # gjcCAQSgWzBZMDQGCisGAQQBgjcCAR4wJgIDAQAABBAfzDtgWUsITrck0sYpfvNR
-# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQULqJW2qC7y2whbzHAuP8u9K6n
-# gvugggMWMIIDEjCCAfqgAwIBAgIQLOXnTOrsfbtMi7849WAAizANBgkqhkiG9w0B
+# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQU/esnBmkVTTHgztiKf2dvhM/4
+# b+agggMWMIIDEjCCAfqgAwIBAgIQLOXnTOrsfbtMi7849WAAizANBgkqhkiG9w0B
 # AQsFADAhMR8wHQYDVQQDDBZDSEVTSS1Db2RlU2lnbi1KRC0yMDI0MB4XDTIzMTEx
 # OTE5NDEzOVoXDTI0MTExOTIwMDEzOVowITEfMB0GA1UEAwwWQ0hFU0ktQ29kZVNp
 # Z24tSkQtMjAyNDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAPLupOwP
@@ -100,11 +118,11 @@ $form.ShowDialog()
 # A1UEAwwWQ0hFU0ktQ29kZVNpZ24tSkQtMjAyNAIQLOXnTOrsfbtMi7849WAAizAJ
 # BgUrDgMCGgUAoHgwGAYKKwYBBAGCNwIBDDEKMAigAoAAoQKAADAZBgkqhkiG9w0B
 # CQMxDAYKKwYBBAGCNwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAj
-# BgkqhkiG9w0BCQQxFgQUQhHDdAXyNh2UHEVYx68ZWjrMcCQwDQYJKoZIhvcNAQEB
-# BQAEggEAEDYncmvcIarMnjT9sQZqxfrWtHGDqTFqBkHMe1PhqCdFbD3Taqe0a08J
-# xp3p5baDNFzYd6fTNcUJEnkUYomQ/SJ9hhSes8FDU7LZSWd/UXnkwTONZBfL86H7
-# HgbyqzNPXQNWOXQH9JGZUFBzqIyiD1r5sV+42rSkC9Liysr+4H+WMiGVg5tqCOOO
-# xMFRfGawbqWNgWnBl+SgFmUq8Ti8+6qxjDm4kQQDP7+8CbIabubAdkq53mtphBqs
-# FRpOhYln8CEDkgw3Ihmioc7Jism4sglrsw//ucYo+GJrQNM/vhP63MdNz7vaD9X9
-# AIlCXas5tsJVvI61RFUTKau2EKz7vw==
+# BgkqhkiG9w0BCQQxFgQUGwoybTIGp5NHAfIGhKAtNIrxG4YwDQYJKoZIhvcNAQEB
+# BQAEggEA1Wn6ZaDC+fdBXp0z3m5Hi/NxGb0bdspjsxcA0XuYc9P2pNsDWjv9Lcrm
+# hXe5zyBbp09estiZ7h6O0oM+8GyQc7cFvCVoWPKzuqZr4tFHh4lMjHu1dq3gTFq7
+# yKVNSQS0+Gw2vDh6qLb3eqhbefMMyVoqJokM0+n/y1s24ZUFmKq9az5TUe5DLfYr
+# Rv8qPZlMNde8IaGnjOOJPrCP4mYkAlXXLxmG++jSJ8L3pD6eSHt0Yv7c+qbQAZLD
+# dJEYqG/fqYJqq0v9Dr9y2jrIvxD9rAs2DYp13T7DNZj35XTmMSPKgRE88ORdCY65
+# d2Ax3yDbm7q/UslPUIt+nIqogI9wfA==
 # SIG # End signature block
